@@ -37,18 +37,69 @@ function parseDevices(text) {
       var kv = parts[j].split(":")
       if (kv.length === 2) meta[kv[0]] = kv[1]
     }
+    // A serial is Wi-Fi if it is ip:port (tcpip mode), or an mDNS-style adbd
+    // identity ("adb-<guid>._adb-tls-connect._tcp"), which is how Android 11+
+    // wireless-debugging transports appear. Without the mDNS check those
+    // transports get mislabeled as USB.
     var wifi = /^\d+\.\d+\.\d+\.\d+:\d+$/.test(serial) || /^\[?[0-9a-f:]+\]?:\d+$/i.test(serial)
+      || serial.indexOf("_adb-tls") !== -1 || /^adb-[0-9a-f]{8,}/i.test(serial)
     out.push({
       serial: serial,
       state: state,
       transport: wifi ? "wifi" : "usb",
       model: (meta.model || "").replace(/_/g, " "),
+      // Stable physical identity: adb reports device:<product-device> for
+      // every transport of the same hardware, so USB / tcpip / mDNS views of
+      // one phone group together.
+      deviceKey: meta.device || (meta.model || "").replace(/_/g, " ") || serial,
       product: meta.product || "",
       transportId: meta.transport_id || "",
       ready: state === "device"
     })
   }
   return out
+}
+
+// Collapse transports of the same physical phone into one row: adb lists a
+// device once per channel (USB, tcpip ip:port, wireless-debugging mDNS), so
+// a phone reachable two ways otherwise appears twice and inflates counts.
+// Groups keep first-seen order. The preferred channel for mirroring is USB
+// when a ready one exists (lower latency, higher-quality profile), else the
+// first ready Wi-Fi transport.
+function groupDevices(devices) {
+  var groups = []
+  var byKey = {}
+  for (var i = 0; i < devices.length; i++) {
+    var d = devices[i]
+    var key = d.deviceKey || d.serial
+    var g = byKey[key]
+    if (!g) {
+      g = byKey[key] = {
+        key: key,
+        serial: key,
+        model: d.model,
+        transports: [],
+        ready: false,
+        preferred: null,
+        usbTransport: null,
+        wifiTransports: []
+      }
+      groups.push(g)
+    }
+    if (!g.model && d.model) g.model = d.model
+    g.transports.push(d)
+    if (d.transport === "usb") {
+      if (!g.usbTransport) g.usbTransport = d
+      if (d.ready && !g.preferred) g.preferred = d
+    } else {
+      g.wifiTransports.push(d)
+      if (d.ready && !g.wifiPreferred) g.wifiPreferred = d
+    }
+    if (d.ready) g.ready = true
+  }
+  for (var j = 0; j < groups.length; j++)
+    if (!groups[j].preferred) groups[j].preferred = groups[j].wifiPreferred
+  return groups
 }
 
 function deviceTitle(d) {
@@ -59,9 +110,23 @@ function deviceTitle(d) {
 
 function deviceSubtitle(d) {
   if (!d) return ""
-  var bits = [d.transport === "wifi" ? "Wi-Fi" : "USB", d.serial]
-  if (!d.ready) bits.push(stateHint(d.state))
-  return bits.join(" · ")
+  if (!d.transports) {
+    var bits = [d.transport === "wifi" ? "Wi-Fi" : "USB", d.serial]
+    if (!d.ready) bits.push(stateHint(d.state))
+    return bits.join(" · ")
+  }
+  // Group row: one tag per channel type; identical channels show once, and
+  // a channel that is not ready carries its state hint. USB tags first: it
+  // is the preferred channel when present.
+  var usbTags = []
+  var wifiTags = []
+  for (var i = 0; i < d.transports.length; i++) {
+    var t = d.transports[i]
+    var tag = (t.transport === "wifi" ? "Wi-Fi" : "USB") + (t.ready ? "" : " (" + stateHint(t.state) + ")")
+    var bucket = t.transport === "wifi" ? wifiTags : usbTags
+    if (bucket.indexOf(tag) === -1) bucket.push(tag)
+  }
+  return usbTags.concat(wifiTags).join(" · ")
 }
 
 function stateHint(state) {
