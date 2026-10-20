@@ -82,6 +82,7 @@ function groupDevices(devices) {
         ready: false,
         preferred: null,
         usbTransport: null,
+        wifiReady: false,
         wifiTransports: []
       }
       groups.push(g)
@@ -93,6 +94,7 @@ function groupDevices(devices) {
       if (d.ready && !g.preferred) g.preferred = d
     } else {
       g.wifiTransports.push(d)
+      if (d.ready) g.wifiReady = true
       if (d.ready && !g.wifiPreferred) g.wifiPreferred = d
     }
     if (d.ready) g.ready = true
@@ -129,13 +131,20 @@ function deviceSubtitle(d, mirroring) {
     if (bucket.indexOf(tag) === -1) bucket.push(tag)
   }
   var out = usbTags.concat(wifiTags).join(" · ")
-  // Name the channel the active mirror session actually rides on, so a
-  // session started over Wi-Fi does not masquerade as USB once the phone is
-  // plugged in (or vice versa).
+  // Best practice: the channel the session rides on leads, and the remaining
+  // available channels follow without repeating it — "live over USB · Wi-Fi",
+  // or just "live over Wi-Fi" when it is the only channel.
   if (mirroring)
     for (var j = 0; j < d.transports.length; j++)
-      if (d.transports[j].serial === mirroring.serial)
-        return out + " · live over " + (mirroring.transport === "wifi" ? "Wi-Fi" : "USB")
+      if (d.transports[j].serial === mirroring.serial) {
+        var liveTag = "live over " + (mirroring.transport === "wifi" ? "Wi-Fi" : "USB")
+        var bare = mirroring.transport === "wifi" ? "Wi-Fi" : "USB"
+        var all = usbTags.concat(wifiTags)
+        var rest = []
+        for (var k = 0; k < all.length; k++)
+          if (all[k] !== bare) rest.push(all[k])
+        return [liveTag].concat(rest).join(" · ")
+      }
   return out
 }
 

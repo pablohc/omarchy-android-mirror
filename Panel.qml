@@ -260,7 +260,7 @@ Ui.Panel {
                 spacing: Style.spacing.xs
 
                 Ui.PanelActionButton {
-                  visible: row.modelData.usbTransport && row.modelData.usbTransport.ready
+                  visible: row.modelData.usbTransport && row.modelData.usbTransport.ready && !row.modelData.wifiReady
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   iconText: "󰖩"
