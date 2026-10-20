@@ -289,7 +289,7 @@ Ui.Panel {
                   visible: row.switchTarget !== null
                   foreground: root.foreground
                   fontFamily: root.fontFamily
-                  iconText: "󰇄"
+                  iconText: row.switchTarget && row.switchTarget.transport === "wifi" ? "󰖩" : "󰕓"
                   tooltipText: "Switch the live session to " + (row.switchTarget && row.switchTarget.transport === "wifi" ? "Wi-Fi" : "USB")
                   enabled: !backend.actionBusy
                   onClicked: backend.mirror(row.switchTarget)
