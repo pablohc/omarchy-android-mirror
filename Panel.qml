@@ -245,7 +245,7 @@ Ui.Panel {
                 }
                 Text {
                   width: parent.width
-                  text: Model.deviceSubtitle(row.modelData)
+                  text: Model.deviceSubtitle(row.modelData, row.isMirroring ? backend.mirroring : null)
                   color: row.modelData.ready ? root.dim : root.urgent
                   elide: Text.ElideRight
                   font.family: root.fontFamily

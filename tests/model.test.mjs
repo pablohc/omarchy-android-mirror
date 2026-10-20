@@ -105,3 +105,18 @@ test("groupDevices keeps distinct phones apart when device: is missing", () => {
   assert.equal(groups[1].key, "192.168.1.9:5555")
   assert.equal(M.deviceSubtitle(groups[1]), "Wi-Fi")
 })
+
+test("deviceSubtitle names the channel a live session rides on", () => {
+  const devs = M.parseDevices(`List of devices attached
+R58M1234ABC            device usb:1-2 product:beyond1 model:SM_G973F device:beyond1 transport_id:3
+192.168.1.42:5555      device product:beyond1 model:SM_G973F device:beyond1 transport_id:4
+`)
+  const group = M.groupDevices(devs)[0]
+  assert.equal(M.deviceSubtitle(group), "USB · Wi-Fi")
+  assert.equal(
+    M.deviceSubtitle(group, { serial: "192.168.1.42:5555", transport: "wifi" }),
+    "USB · Wi-Fi · live over Wi-Fi")
+  assert.equal(
+    M.deviceSubtitle(group, { serial: "R58M1234ABC", transport: "usb" }),
+    "USB · Wi-Fi · live over USB")
+})

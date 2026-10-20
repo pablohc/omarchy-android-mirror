@@ -108,11 +108,13 @@ function deviceTitle(d) {
   return d.serial
 }
 
-function deviceSubtitle(d) {
+function deviceSubtitle(d, mirroring) {
   if (!d) return ""
   if (!d.transports) {
     var bits = [d.transport === "wifi" ? "Wi-Fi" : "USB", d.serial]
     if (!d.ready) bits.push(stateHint(d.state))
+    if (mirroring && mirroring.serial === d.serial)
+      bits.push("live over " + (mirroring.transport === "wifi" ? "Wi-Fi" : "USB"))
     return bits.join(" · ")
   }
   // Group row: one tag per channel type; identical channels show once, and
@@ -126,7 +128,15 @@ function deviceSubtitle(d) {
     var bucket = t.transport === "wifi" ? wifiTags : usbTags
     if (bucket.indexOf(tag) === -1) bucket.push(tag)
   }
-  return usbTags.concat(wifiTags).join(" · ")
+  var out = usbTags.concat(wifiTags).join(" · ")
+  // Name the channel the active mirror session actually rides on, so a
+  // session started over Wi-Fi does not masquerade as USB once the phone is
+  // plugged in (or vice versa).
+  if (mirroring)
+    for (var j = 0; j < d.transports.length; j++)
+      if (d.transports[j].serial === mirroring.serial)
+        return out + " · live over " + (mirroring.transport === "wifi" ? "Wi-Fi" : "USB")
+  return out
 }
 
 function stateHint(state) {
