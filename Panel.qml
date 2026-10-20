@@ -219,6 +219,14 @@ Ui.Panel {
                 && modelData.transports.some(function(t) { return t.serial === backend.mirroring.serial })
               readonly property int readyIndex: root.readyDevices.findIndex(function(g) { return g.key === modelData.key })
               readonly property bool selected: modelData.ready && readyIndex === root.cursor
+              // The transport the live session rides on, and a ready channel
+              // of the other kind to offer a live switch to.
+              readonly property var liveTransport: row.isMirroring && backend.mirroring
+                ? row.modelData.transports.find(function(t) { return t.serial === backend.mirroring.serial })
+                : null
+              readonly property var switchTarget: (row.isMirroring && row.modelData.ready && liveTransport)
+                ? row.modelData.transports.find(function(t) { return t.ready && t.transport !== liveTransport.transport })
+                : null
               width: parent ? parent.width : 0
               height: rowText.implicitHeight + Style.spacing.sm
 
@@ -276,6 +284,15 @@ Ui.Panel {
                   tooltipText: "Disconnect this Wi-Fi channel"
                   enabled: !backend.actionBusy
                   onClicked: backend.disconnect(row.modelData.wifiTransports[0].serial)
+                }
+                Ui.PanelActionButton {
+                  visible: row.switchTarget !== null
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  iconText: "󰇄"
+                  tooltipText: "Switch the live session to " + (row.switchTarget && row.switchTarget.transport === "wifi" ? "Wi-Fi" : "USB")
+                  enabled: !backend.actionBusy
+                  onClicked: backend.mirror(row.switchTarget)
                 }
                 Ui.Button {
                   visible: row.modelData.ready
