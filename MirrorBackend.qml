@@ -39,6 +39,14 @@ Item {
   // during a live session must not race mirrorProc's onExited, which clears
   // mirroring and would orphan the freshly started session.
   property var pendingMirror: null
+  // Auto-resume: ColorOS restarts adbd on lock/unlock, killing the tunnel;
+  // the transport re-appears seconds later, often on a new port. These track
+  // a session the user started that died unexpectedly, to bring it back.
+  property bool manualStop: false
+  property string resumeTarget: ""
+  property int resumeAttempts: 0
+  property int resumeTicks: 0
+  readonly property int resumeMaxAttempts: 3
   property string mirrorError: ""
 
   readonly property int refreshIntervalSec: Math.round(Model.clamp(setting("refreshIntervalSec", 10), 3, 300))
@@ -309,6 +317,9 @@ Item {
   }
 
   function startMirror(device) {
+    manualStop = false
+    resumeAttempts = 0
+    resumeTimer.stop()
     // Float + pin the window without the user editing Hyprland config.
     ruleProc.command = [root.ruleScript, device.serial, root.resolvedAdb]
     ruleProc.running = true
@@ -384,7 +395,51 @@ Item {
   }
 
   function stopMirror() {
+    manualStop = true
+    resumeTarget = ""
+    resumeTimer.stop()
     if (mirrorProc.running) mirrorProc.signal(15)
+  }
+
+  // Active mDNS query: wakes adb's discovery instead of waiting for its
+  // passive backoff — the phone answers immediately when on-network.
+  Process {
+    id: mdnsProbe
+    command: root.resolvedAdb === "" ? [] : [root.resolvedAdb, "mdns", "services"]
+    stdout: StdioCollector { }
+  }
+
+  // Polls for the dropped session's phone to re-appear (identity match, not
+  // serial: the port changes across adbd restarts) and brings the session
+  // back. Gives up after ~25 s so a truly gone phone does not loop.
+  Timer {
+    id: resumeTimer
+    interval: 1000
+    repeat: true
+    running: false
+    onTriggered: {
+      if (manualStop || resumeTarget === "") { stop(); return }
+      resumeTicks++
+      if (resumeTicks > 25) {
+        stop()
+        var gone = resumeTarget
+        resumeTarget = ""
+        root.mirrorError = "session dropped; phone did not re-appear within 25 s (" + gone + ")"
+        return
+      }
+      if (!devicesProc.running) devicesProc.running = true
+      if (!mdnsProbe.running) mdnsProbe.running = true
+      var hit = null
+      for (var i = 0; i < root.devices.length; i++) {
+        var d = root.devices[i]
+        if (d.ready && (d.deviceKey || d.serial) === resumeTarget) { hit = d; break }
+      }
+      if (hit) {
+        stop()
+        resumeTarget = ""
+        startMirror(hit)
+      }
+    }
   }
 
   Process {
@@ -408,6 +463,20 @@ Item {
         root.pendingMirror = null
         if (next.ready) startMirror(next)
         else root.mirrorError = "device went away before the switch: " + next.serial
+        return
+      }
+      // Auto-resume: a non-zero exit with a session that the user started
+      // (not stopped, not window-closed) is a dropped tunnel — e.g. ColorOS
+      // restarting adbd on lock/unlock. The transport re-appears seconds
+      // later, so poll for it and bring the session back.
+      if (!manualStop && exitCode !== 0 && was && resumeAttempts < resumeMaxAttempts) {
+        resumeTarget = was.deviceKey || was.serial
+        resumeAttempts++
+        resumeTicks = 0
+        resumeTimer.restart()
+      } else if (!manualStop && exitCode !== 0 && was) {
+        resumeTarget = ""
+        root.mirrorError = "session dropped; " + (was.model || was.serial) + " did not come back to resume it"
       }
     }
   }
