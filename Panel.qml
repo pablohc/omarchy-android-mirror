@@ -225,7 +225,7 @@ Ui.Panel {
                 ? row.modelData.transports.find(function(t) { return t.serial === backend.mirroring.serial })
                 : null
               readonly property var switchTarget: (row.isMirroring && row.modelData.ready && liveTransport)
-                ? row.modelData.transports.find(function(t) { return t.ready && t.transport !== liveTransport.transport })
+                ? (row.modelData.transports.find(function(t) { return t.ready && t.transport !== liveTransport.transport }) || null)
                 : null
               width: parent ? parent.width : 0
               height: rowText.implicitHeight + Style.spacing.sm
