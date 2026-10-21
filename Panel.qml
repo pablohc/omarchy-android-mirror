@@ -61,6 +61,16 @@ Ui.Panel {
     settings: root.settings
   }
 
+  // Pre-fill the Connect field with the last endpoint that worked, so a
+  // dropped Wi-Fi channel does not mean re-typing the address.
+  Connections {
+    target: backend
+    function onLastWifiEndpointChanged() {
+      if (root.connectEndpoint === "" && backend.lastWifiEndpoint !== "")
+        root.connectEndpoint = backend.lastWifiEndpoint
+    }
+  }
+
   Timer {
     interval: 1000
     running: root.opened
