@@ -116,7 +116,7 @@ R58M1234ABC            device usb:1-2 product:beyond1 model:SM_G973F device:beyo
   // The live channel leads; the available channels follow without repeating it.
   assert.equal(
     M.deviceSubtitle(group, { serial: "192.168.1.42:5555", transport: "wifi" }),
-    "live over Wi-Fi (192.168.1.42:5555) · USB")
+    "live over Wi-Fi 192.168.1.42:5555 · USB")
   assert.equal(
     M.deviceSubtitle(group, { serial: "R58M1234ABC", transport: "usb" }),
     "live over USB · Wi-Fi 192.168.1.42:5555")
@@ -126,5 +126,5 @@ R58M1234ABC            device usb:1-2 product:beyond1 model:SM_G973F device:beyo
 `))[0]
   assert.equal(
     M.deviceSubtitle(wifiOnly, { serial: "192.168.1.9:5555", transport: "wifi" }),
-    "live over Wi-Fi (192.168.1.9:5555)")
+    "live over Wi-Fi 192.168.1.9:5555")
 })

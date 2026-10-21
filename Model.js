@@ -141,16 +141,15 @@ function deviceSubtitle(d, mirroring) {
     for (var j = 0; j < d.transports.length; j++)
       if (d.transports[j].serial === mirroring.serial) {
         var mt = d.transports[j]
-        var liveHasAddress = mt.transport === "wifi" && /^\d+\.\d+\.\d+\.\d+:\d+$/.test(mt.serial)
-        var live = "live over " + (mt.transport === "wifi" ? "Wi-Fi" : "USB")
-          + (liveHasAddress ? " (" + mt.serial + ")" : "")
-        var liveTag = (mt.transport === "wifi" ? "Wi-Fi" : "USB") + (liveHasAddress ? " " + mt.serial : "")
+        var mtIsWifi = mt.transport === "wifi"
+        var mtHasAddress = mtIsWifi && /^\d+\.\d+\.\d+\.\d+:\d+$/.test(mt.serial)
+        var liveLabel = (mtIsWifi ? "Wi-Fi" : "USB") + (mtHasAddress ? " " + mt.serial : "")
           + (mt.ready ? "" : " (" + stateHint(mt.state) + ")")
         var all = usbTags.concat(wifiTags)
         var rest = []
         for (var k = 0; k < all.length; k++)
-          if (all[k] !== liveTag) rest.push(all[k])
-        return [live].concat(rest).join(" · ")
+          if (all[k] !== liveLabel) rest.push(all[k])
+        return ["live over " + liveLabel].concat(rest).join(" · ")
       }
   return out
 }
