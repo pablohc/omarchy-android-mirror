@@ -119,31 +119,38 @@ function deviceSubtitle(d, mirroring) {
       bits.push("live over " + (mirroring.transport === "wifi" ? "Wi-Fi" : "USB"))
     return bits.join(" · ")
   }
-  // Group row: one tag per channel type; identical channels show once, and
-  // a channel that is not ready carries its state hint. USB tags first: it
-  // is the preferred channel when present.
+  // Group row: one tag per channel; Wi-Fi tags carry the address when adb
+  // reports it (ip:port — mDNS serials are opaque guids). Bare "Wi-Fi" tags
+  // collapse when an addressed one exists; a channel that is not ready
+  // carries its state hint. USB tags come first (preferred channel).
   var usbTags = []
   var wifiTags = []
   for (var i = 0; i < d.transports.length; i++) {
     var t = d.transports[i]
-    var tag = (t.transport === "wifi" ? "Wi-Fi" : "USB") + (t.ready ? "" : " (" + stateHint(t.state) + ")")
-    var bucket = t.transport === "wifi" ? wifiTags : usbTags
+    var isWifi = t.transport === "wifi"
+    var hasAddress = isWifi && /^\d+\.\d+\.\d+\.\d+:\d+$/.test(t.serial)
+    var tag = (isWifi ? "Wi-Fi" : "USB") + (hasAddress ? " " + t.serial : "")
+      + (t.ready ? "" : " (" + stateHint(t.state) + ")")
+    var bucket = isWifi ? wifiTags : usbTags
     if (bucket.indexOf(tag) === -1) bucket.push(tag)
   }
+  if (wifiTags.indexOf("Wi-Fi") !== -1 && wifiTags.length > 1)
+    wifiTags.splice(wifiTags.indexOf("Wi-Fi"), 1)
   var out = usbTags.concat(wifiTags).join(" · ")
-  // Best practice: the channel the session rides on leads, and the remaining
-  // available channels follow without repeating it — "live over USB · Wi-Fi",
-  // or just "live over Wi-Fi" when it is the only channel.
   if (mirroring)
     for (var j = 0; j < d.transports.length; j++)
       if (d.transports[j].serial === mirroring.serial) {
-        var liveTag = "live over " + (mirroring.transport === "wifi" ? "Wi-Fi" : "USB")
-        var bare = mirroring.transport === "wifi" ? "Wi-Fi" : "USB"
+        var mt = d.transports[j]
+        var liveHasAddress = mt.transport === "wifi" && /^\d+\.\d+\.\d+\.\d+:\d+$/.test(mt.serial)
+        var live = "live over " + (mt.transport === "wifi" ? "Wi-Fi" : "USB")
+          + (liveHasAddress ? " (" + mt.serial + ")" : "")
+        var liveTag = (mt.transport === "wifi" ? "Wi-Fi" : "USB") + (liveHasAddress ? " " + mt.serial : "")
+          + (mt.ready ? "" : " (" + stateHint(mt.state) + ")")
         var all = usbTags.concat(wifiTags)
         var rest = []
         for (var k = 0; k < all.length; k++)
-          if (all[k] !== bare) rest.push(all[k])
-        return [liveTag].concat(rest).join(" · ")
+          if (all[k] !== liveTag) rest.push(all[k])
+        return [live].concat(rest).join(" · ")
       }
   return out
 }

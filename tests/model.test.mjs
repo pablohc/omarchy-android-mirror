@@ -88,7 +88,7 @@ ZY22ABCD               unauthorized usb:1-3 transport_id:5
   assert.equal(groups[0].preferred.serial, "R58M1234ABC")
   assert.equal(groups[0].usbTransport.serial, "R58M1234ABC")
   assert.equal(groups[0].wifiTransports.length, 2)
-  assert.equal(M.deviceSubtitle(groups[0]), "USB · Wi-Fi")
+  assert.equal(M.deviceSubtitle(groups[0]), "USB · Wi-Fi 192.168.1.42:5555")
   assert.equal(groups[1].key, "ZY22ABCD")
   assert.equal(groups[1].ready, false)
   assert.match(M.deviceSubtitle(groups[1]), /tap Allow on the phone/)
@@ -103,7 +103,7 @@ test("groupDevices keeps distinct phones apart when device: is missing", () => {
   assert.equal(groups.length, 2)
   assert.equal(groups[0].key, "0123456789ABCDEF")
   assert.equal(groups[1].key, "192.168.1.9:5555")
-  assert.equal(M.deviceSubtitle(groups[1]), "Wi-Fi")
+  assert.equal(M.deviceSubtitle(groups[1]), "Wi-Fi 192.168.1.9:5555")
 })
 
 test("deviceSubtitle names the channel a live session rides on", () => {
@@ -112,19 +112,19 @@ R58M1234ABC            device usb:1-2 product:beyond1 model:SM_G973F device:beyo
 192.168.1.42:5555      device product:beyond1 model:SM_G973F device:beyond1 transport_id:4
 `)
   const group = M.groupDevices(devs)[0]
-  assert.equal(M.deviceSubtitle(group), "USB · Wi-Fi")
+  assert.equal(M.deviceSubtitle(group), "USB · Wi-Fi 192.168.1.42:5555")
   // The live channel leads; the available channels follow without repeating it.
   assert.equal(
     M.deviceSubtitle(group, { serial: "192.168.1.42:5555", transport: "wifi" }),
-    "live over Wi-Fi · USB")
+    "live over Wi-Fi (192.168.1.42:5555) · USB")
   assert.equal(
     M.deviceSubtitle(group, { serial: "R58M1234ABC", transport: "usb" }),
-    "live over USB · Wi-Fi")
+    "live over USB · Wi-Fi 192.168.1.42:5555")
   // Single channel: no redundancy.
   const wifiOnly = M.groupDevices(M.parseDevices(`List of devices attached
 192.168.1.9:5555       device product:beyond1 model:SM_G973F device:beyond1 transport_id:6
 `))[0]
   assert.equal(
     M.deviceSubtitle(wifiOnly, { serial: "192.168.1.9:5555", transport: "wifi" }),
-    "live over Wi-Fi")
+    "live over Wi-Fi (192.168.1.9:5555)")
 })
