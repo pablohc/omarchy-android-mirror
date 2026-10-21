@@ -401,6 +401,14 @@ Item {
     if (mirrorProc.running) mirrorProc.signal(15)
   }
 
+  // Active mDNS query: wakes adb's discovery instead of waiting for its
+  // passive backoff — the phone answers immediately when on-network.
+  Process {
+    id: mdnsProbe
+    command: root.resolvedAdb === "" ? [] : [root.resolvedAdb, "mdns", "services"]
+    stdout: StdioCollector { }
+  }
+
   // Polls for the dropped session's phone to re-appear (identity match, not
   // serial: the port changes across adbd restarts) and brings the session
   // back. Gives up after ~25 s so a truly gone phone does not loop.
@@ -420,6 +428,7 @@ Item {
         return
       }
       if (!devicesProc.running) devicesProc.running = true
+      if (!mdnsProbe.running) mdnsProbe.running = true
       var hit = null
       for (var i = 0; i < root.devices.length; i++) {
         var d = root.devices[i]
