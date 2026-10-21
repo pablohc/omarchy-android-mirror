@@ -41,6 +41,45 @@ Item {
   property var pendingMirror: null
   property string mirrorError: ""
 
+  // Last Wi-Fi endpoint that connected successfully, persisted so the panel
+  // pre-fills it instead of asking to re-type the address after a drop.
+  readonly property string stateDir: {
+    var base = Quickshell.env("XDG_STATE_HOME")
+    return (base !== "" ? base : Quickshell.env("HOME") + "/.local/state")
+      + "/io.github.ayan-de.android-mirror"
+  }
+  property string lastWifiEndpoint: ""
+
+  FileView {
+    id: endpointStore
+    path: root.stateDir + "/last-wifi-endpoint.json"
+    watchChanges: false
+    atomicWrites: true
+    printErrors: false
+    onLoaded: {
+      try {
+        var saved = JSON.parse(String(text() || "{}"))
+        if (saved.endpoint) root.lastWifiEndpoint = saved.endpoint
+      } catch (e) {}
+    }
+  }
+
+  Process {
+    id: stateDirInit
+    command: ["mkdir", "-p", root.stateDir]
+  }
+
+  Component.onCompleted: {
+    stateDirInit.running = true
+    checkTools()
+  }
+
+  function rememberWifiEndpoint(ep) {
+    lastWifiEndpoint = ep
+    endpointStore.setText(JSON.stringify({ endpoint: ep }))
+    endpointStore.writeAdapter()
+  }
+
   readonly property int refreshIntervalSec: Math.round(Model.clamp(setting("refreshIntervalSec", 10), 3, 300))
   readonly property string adbPath: String(setting("adbPath", "")).trim() || Model.DEFAULT_ADB
   readonly property string scrcpyPath: String(setting("scrcpyPath", "")).trim() || Model.DEFAULT_SCRCPY
@@ -57,7 +96,6 @@ Item {
   // while a tool is reported missing so installing it heals the panel.
   onAdbPathChanged: checkTools()
   onScrcpyPathChanged: checkTools()
-  Component.onCompleted: checkTools()
 
   function checkTools() { toolCheck.running = true }
 
@@ -242,6 +280,7 @@ Item {
       args: ["connect", ep.address],
       onDone: function(out, err, code) {
         var v = Model.connectVerdict(out, err, code)
+        if (v.ok) root.rememberWifiEndpoint(ep.address)
         root.finishSteps(v.ok, v.message)
         return false
       }
