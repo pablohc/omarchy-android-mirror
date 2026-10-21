@@ -66,7 +66,7 @@ test("stateLabel", () => {
 
 test("parseDevices labels mDNS wireless-debugging transports as wifi", () => {
   const out = M.parseDevices(`List of devices attached
-adb-7f325739lm1n2u._adb-tls-connect._tcp device product:RMX1931EEA model:RMX1931 device:RMX1931L1 transport_id:8
+adb-12ab34cd56ef7890._adb-tls-connect._tcp device product:RMX1931EEA model:RMX1931 device:RMX1931L1 transport_id:8
 `)
   assert.equal(out[0].transport, "wifi")
   assert.equal(out[0].deviceKey, "RMX1931L1")
@@ -75,7 +75,7 @@ adb-7f325739lm1n2u._adb-tls-connect._tcp device product:RMX1931EEA model:RMX1931
 test("groupDevices collapses transports of one phone into a single group", () => {
   const devs = M.parseDevices(`List of devices attached
 192.168.1.42:5555      device product:beyond1 model:SM_G973F device:beyond1 transport_id:4
-adb-7f325739lm1n2u._adb-tls-connect._tcp device product:beyond1 model:SM_G973F device:beyond1 transport_id:8
+adb-12ab34cd56ef7890._adb-tls-connect._tcp device product:beyond1 model:SM_G973F device:beyond1 transport_id:8
 R58M1234ABC            device usb:1-2 product:beyond1 model:SM_G973F device:beyond1 transport_id:3
 ZY22ABCD               unauthorized usb:1-3 transport_id:5
 `)
