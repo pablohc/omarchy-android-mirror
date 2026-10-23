@@ -240,6 +240,70 @@ function parseWlanIp(routeText, addrText) {
   return a ? a[1] : ""
 }
 
+// `adb mdns services` prints one line per service the network advertises:
+//   adb-<guid>-<alias>\t_adb-tls-pairing._tcp\t192.168.1.5:37123
+//   adb-<guid>-<alias>\t_adb-tls-connect._tcp\t192.168.1.5:43631
+//   adb-<guid>\t_adb._tcp\t192.168.1.5:5555
+// The pairing service only exists while the phone shows its "Pair device
+// with pairing code" screen; connect services are there whenever wireless
+// debugging is on. kind: "pair" | "connect". alias is the phone's own
+// wireless-debugging name, the only human-readable part of the line.
+function parseMdns(text) {
+  var out = []
+  var lines = String(text || "").split("\n")
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim()
+    if (line === "" || line.indexOf("List of discovered") === 0 || line.charAt(0) === "*") continue
+    var parts = line.split(/\s+/)
+    if (parts.length < 3) continue
+    var kind = parts[1] === "_adb-tls-pairing._tcp" ? "pair"
+      : (parts[1] === "_adb-tls-connect._tcp" || parts[1] === "_adb._tcp") ? "connect" : ""
+    if (kind === "") continue
+    if (!/^\d+\.\d+\.\d+\.\d+:\d+$/.test(parts[2])) continue
+    var name = parts[0].replace(/^adb-/, "")
+    var dash = name.indexOf("-")
+    out.push({
+      name: parts[0],
+      service: parts[1],
+      kind: kind,
+      address: parts[2],
+      alias: dash !== -1 ? name.slice(dash + 1) : name
+    })
+  }
+  return out
+}
+
+function mdnsPairing(services) {
+  var out = []
+  for (var i = 0; i < services.length; i++)
+    if (services[i].kind === "pair") out.push(services[i])
+  return out
+}
+
+// adb pair prints the phone's guid on success ("[guid=adb-2353112e]"); the
+// same id prefixes the device's mdns service names, so the connect endpoint
+// of the phone just paired can be picked out of `adb mdns services` output.
+function pairGuid(out) {
+  var m = String(out || "").match(/guid=(adb-[0-9a-f]+)/i)
+  return m ? m[1] : ""
+}
+
+// The connect endpoint of the phone just paired: the mdns service carrying
+// the paired guid, else the one sharing the pair address's host. "" if the
+// phone is not advertising one right now.
+function pickConnectService(services, guid, host) {
+  var i, s
+  for (i = 0; i < services.length; i++) {
+    s = services[i]
+    if (s.kind === "connect" && guid !== "" && s.name.indexOf(guid) !== -1) return s.address
+  }
+  for (i = 0; i < services.length; i++) {
+    s = services[i]
+    if (s.kind === "connect" && host !== "" && s.address.indexOf(host + ":") === 0) return s.address
+  }
+  return ""
+}
+
 function elapsed(fromMs, nowMs) {
   var s = Math.max(0, Math.round((nowMs - fromMs) / 1000))
   if (s < 5) return "just now"

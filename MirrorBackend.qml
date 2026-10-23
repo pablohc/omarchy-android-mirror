@@ -46,6 +46,8 @@ Item {
   readonly property string scrcpyPath: String(setting("scrcpyPath", "")).trim() || Model.DEFAULT_SCRCPY
 
   signal refreshed()
+  // Emitted once a pairing succeeded, so the panel can clear the section.
+  signal paired()
 
   function setting(name, fallback) {
     var value = settings ? settings[name] : undefined
@@ -142,6 +144,34 @@ Item {
     onTriggered: root.refresh()
   }
 
+  // --- mdns discovery ---------------------------------------------------------
+  // `adb mdns services` lists what the network advertises right now: pairing
+  // endpoints (only while the phone shows its pairing-code screen) and
+  // connect endpoints (whenever wireless debugging is on). Feeds the
+  // Autodiscover rows in the pairing section so nobody types ip:port.
+  property var discovered: []
+  property bool scanning: false
+  // Old adb builds have no mdns subcommand: the button hides instead of failing.
+  property bool mdnsUnsupported: false
+
+  function scanMdns() {
+    if (adbMissing || mdnsProc.running) return
+    scanning = true
+    mdnsProc.running = true
+  }
+
+  Process {
+    id: mdnsProc
+    command: [root.resolvedAdb, "mdns", "services"]
+    stdout: StdioCollector { id: mdnsOut }
+    stderr: StdioCollector { id: mdnsErr }
+    onExited: function(exitCode) {
+      root.scanning = false
+      root.mdnsUnsupported = exitCode !== 0
+      root.discovered = exitCode === 0 ? Model.parseMdns(mdnsOut.text) : []
+    }
+  }
+
   // --- one-shot adb actions -------------------------------------------------
   // `steps` is a queue of {name, args, stdin?, onDone(stdout, stderr, code) -> bool}
   // so "enable Wi-Fi" can chain tcpip → ip lookup → connect. `stdin` is a
@@ -224,15 +254,44 @@ Item {
     var c = String(code || "").trim()
     if (!ep) { actionOk = false; actionMessage = "Enter the pairing address as ip:port"; return }
     if (!/^\d{6}$/.test(c)) { actionOk = false; actionMessage = "Pairing code is 6 digits"; return }
-    runSteps("pair", [{
-      args: ["pair", ep.address],
-      stdin: c,
-      onDone: function(out, err, code) {
-        var v = Model.pairVerdict(out, err, code)
-        root.finishSteps(v.ok, v.message)
-        return false
+    // Filled by the mdns step below for the connect step that follows it.
+    var connectAddr = ""
+    runSteps("pair", [
+      {
+        args: ["pair", ep.address],
+        stdin: c,
+        onDone: function(out, err, code) {
+          var v = Model.pairVerdict(out, err, code)
+          if (!v.ok) { root.finishSteps(false, v.message); return false }
+          root.paired()
+          return true
+        }
+      },
+      {
+        // The connect advertisement is already live while wireless debugging
+        // is on: grab it in the same breath and connect, so the phone lands
+        // in Phones ready instead of flashing an offline row.
+        args: ["mdns", "services"],
+        onDone: function(out, err, code) {
+          var svcs = Model.parseMdns(out)
+          connectAddr = Model.pickConnectService(svcs, Model.pairGuid(actionOut.text), ep.host)
+          if (connectAddr === "") {
+            root.finishSteps(true, "Paired. The phone will appear in Phones when its wireless debugging reconnects.")
+            return false
+          }
+          return true
+        }
+      },
+      {
+        args: function() { return ["connect", connectAddr] },
+        onDone: function(out, err, code) {
+          var v = Model.connectVerdict(out, err, code)
+          if (v.ok) root.finishSteps(true, "Paired and connected over Wi-Fi — ready to mirror.")
+          else root.finishSteps(true, "Paired. Auto-connect did not take; the phone will appear in Phones when it reconnects.")
+          return false
+        }
       }
-    }])
+    ])
   }
 
   function connect(endpointText) {

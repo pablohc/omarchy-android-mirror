@@ -26,6 +26,9 @@ Ui.Panel {
   readonly property var readyDevices: deviceGroups.filter(function(g) { return g.ready })
   readonly property var usbDevices: devices.filter(function(d) { return d.ready && d.transport === "usb" })
   readonly property string stateLabel: Model.stateLabel(deviceGroups, backend.mirroring)
+  // Pairing endpoints the network is advertising right now (Autodiscover).
+  readonly property var pairCandidates: Model.mdnsPairing(backend.discovered)
+  property bool discoverTried: false
 
   property int cursor: 0
   property bool showPairing: false
@@ -38,6 +41,31 @@ Ui.Panel {
   implicitHeight: iconButton.implicitHeight
 
   function refreshNow() { backend.refresh() }
+
+  // A finished scan with exactly one pairing announcement is the phone's
+  // current truth: the address rotates (port every pairing-screen reopen,
+  // IP on DHCP reassociation), so any differing field value is stale and
+  // gets replaced. More than one announcement leaves the field alone; the
+  // rows are there to pick from. The Connect field is deliberately left
+  // alone: connecting only works after pairing, and a freshly paired phone
+  // shows up in Phones on its own (adb auto-connects paired
+  // wireless-debugging devices).
+  function applyDiscovery() {
+    var pairs = root.pairCandidates
+    if (pairs.length === 1 && root.pairEndpoint !== pairs[0].address) root.pairEndpoint = pairs[0].address
+  }
+
+  // A successful pairing is finished business: clear the address and code,
+  // drop the (now stale) announcements and collapse the section. The
+  // "Paired." message above the footer stays as confirmation. A failed pair
+  // clears nothing, so the values are still there to retry.
+  function resetPairing() {
+    root.pairEndpoint = ""
+    root.pairCode = ""
+    root.discoverTried = false
+    root.showPairing = false
+    backend.discovered = []
+  }
 
   function mirrorSelected() {
     if (backend.mirroring) { backend.stopMirror(); return }
@@ -69,6 +97,12 @@ Ui.Panel {
     onTriggered: root.nowMs = Date.now()
   }
 
+  Connections {
+    target: backend
+    function onDiscoveredChanged() { root.applyDiscovery() }
+    function onPaired() { root.resetPairing() }
+  }
+
   IpcHandler {
     target: root.ipcTarget
     function open(): void { root.open() }
@@ -77,6 +111,9 @@ Ui.Panel {
     function hide(): void { root.close() }
     function toggle(): void { root.toggle() }
     function refresh(): string { root.refreshNow(); return "ok" }
+    function discover(): string { root.discoverTried = true; backend.scanMdns(); return "ok" }
+    // Deterministic UI state for scripts/tests: expand the pairing section.
+    function pairing(): string { root.showPairing = true; return "ok" }
     // omarchy-shell shell ipc io.github.ayan-de.android-mirror mirror
     function mirror(): string {
       root.cursor = 0
@@ -318,6 +355,7 @@ Ui.Panel {
 
         // Wi-Fi: connect to a known address, or pair an Android 11+ phone
         // with the code from Wireless debugging (no cable ever needed).
+        // Autodiscover scans mDNS so only the 6-digit code has to be typed.
         Column {
           width: parent.width
           spacing: Style.spacing.sm
@@ -358,7 +396,7 @@ Ui.Panel {
           }
 
           Ui.Button {
-            text: root.showPairing ? "Hide pairing" : "Pair a new phone (Android 11+)"
+            text: root.showPairing ? "Hide pairing" : "Pair device (Android 11+)"
             iconText: "󰌆"
             foreground: root.foreground
             fontFamily: root.fontFamily
@@ -378,6 +416,61 @@ Ui.Panel {
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
             }
+
+            Ui.Button {
+              visible: !backend.mdnsUnsupported
+              text: backend.scanning ? "Scanning…" : "Autodiscover"
+              // md-magnify-scan from the nerd-fonts glyphnames.json
+              iconText: String.fromCodePoint(0xF1276)
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              enabled: !backend.scanning && !backend.actionBusy
+              tooltipText: "Scans the network for adb devices announcing themselves, so only the pairing code has to be typed"
+              onClicked: {
+                root.discoverTried = true
+                backend.scanMdns()
+              }
+            }
+
+            Text {
+              width: parent.width
+              visible: root.discoverTried && !backend.scanning && root.pairCandidates.length === 0
+              text: "No pairing announcement found. Open the pairing screen on the phone, then scan again."
+              color: root.dim
+              wrapMode: Text.WordWrap
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Repeater {
+              model: root.pairCandidates
+
+              delegate: Item {
+                id: discoverRow
+                required property var modelData
+                width: parent ? parent.width : 0
+                height: discoverLabel.implicitHeight + Style.spacing.xs
+
+                Text {
+                  id: discoverLabel
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: discoverRow.modelData.alias + "  ·  " + discoverRow.modelData.address
+                  color: root.pairEndpoint === discoverRow.modelData.address ? Color.accent : root.foreground
+                  elide: Text.ElideRight
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  onClicked: {
+                    root.pairEndpoint = discoverRow.modelData.address
+                    pairCodeField.forceActiveFocus()
+                  }
+                }
+              }
+            }
+
             Row {
               width: parent.width
               spacing: Style.spacing.sm
@@ -412,7 +505,10 @@ Ui.Panel {
                 bordered: true
                 foreground: root.foreground
                 fontFamily: root.fontFamily
-                enabled: root.pairEndpoint.trim() !== "" && root.pairCode.trim() !== "" && !backend.actionBusy
+                // Always clickable once there is an address: with the code
+                // missing or malformed, pair() explains it in the feedback
+                // line instead of the button sitting silently disabled.
+                enabled: root.pairEndpoint.trim() !== "" && !backend.actionBusy
                 onClicked: backend.pair(root.pairEndpoint, root.pairCode)
               }
             }
@@ -503,6 +599,11 @@ Ui.Panel {
     if (opened) {
       refreshNow()
       backend.actionMessage = ""
+    } else {
+      // Closing resets the section state: reopening starts collapsed, without
+      // a stale "nothing announced" hint. Typed addresses survive on purpose.
+      showPairing = false
+      discoverTried = false
     }
   }
 }

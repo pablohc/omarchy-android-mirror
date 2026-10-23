@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs"
 
 const src = readFileSync(new URL("../Model.js", import.meta.url), "utf8").replace(".pragma library", "")
 const M = new Function(src + `
-  return { parseDevices, groupDevices, deviceSubtitle, scrcpyArgs, parseEndpoint, pairVerdict, connectVerdict, parseWlanIp, stateLabel }`)()
+  return { parseDevices, groupDevices, deviceSubtitle, scrcpyArgs, parseEndpoint, pairVerdict, connectVerdict, parseWlanIp, stateLabel, parseMdns, mdnsPairing, pairGuid, pickConnectService }`)()
 
 test("parseDevices handles usb, wifi, unauthorized, no permissions", () => {
   const out = M.parseDevices(`List of devices attached
@@ -127,4 +127,46 @@ R58M1234ABC            device usb:1-2 product:beyond1 model:SM_G973F device:beyo
   assert.equal(
     M.deviceSubtitle(wifiOnly, { serial: "192.168.1.9:5555", transport: "wifi" }),
     "live over Wi-Fi 192.168.1.9:5555")
+})
+
+test("parseMdns reads pairing and connect services from adb mdns output", () => {
+  const out = M.parseMdns(`List of discovered mdns services
+adb-63598700000017298-6cOrvh\t_adb-tls-connect._tcp\t192.168.1.136:43631
+adb-63598700000017298\t_adb._tcp\t192.168.1.136:5555
+adb-2a7c91f4-realme\t_adb-tls-pairing._tcp\t192.168.1.20:37123
+`)
+  assert.equal(out.length, 3)
+  assert.deepEqual(out.map(s => s.kind), ["connect", "connect", "pair"])
+  assert.equal(out[0].address, "192.168.1.136:43631")
+  assert.equal(out[0].alias, "6cOrvh")
+  assert.equal(out[1].alias, "63598700000017298")
+  assert.equal(out[2].alias, "realme")
+  assert.equal(M.parseMdns("List of discovered mdns services\n\n").length, 0)
+  assert.equal(M.parseMdns("").length, 0)
+  // Unrelated mdns traffic and mangled lines are skipped.
+  assert.equal(M.parseMdns("somehost\t_http._tcp\t192.168.1.7:8080\ngarbage-line-no-tabs").length, 0)
+})
+
+test("mdnsPairing filters pairing services", () => {
+  const svcs = M.parseMdns(`adb-1-realme\t_adb-tls-pairing._tcp\t192.168.1.20:37123
+adb-1-realme\t_adb-tls-connect._tcp\t192.168.1.20:43631
+adb-1\t_adb._tcp\t192.168.1.20:5555`)
+  assert.equal(M.mdnsPairing(svcs).length, 1)
+  assert.equal(M.mdnsPairing(svcs)[0].address, "192.168.1.20:37123")
+  assert.equal(M.mdnsPairing([]).length, 0)
+})
+
+test("pairGuid and pickConnectService find the paired phone's connect endpoint", () => {
+  assert.equal(M.pairGuid("Successfully paired to 192.168.1.5:37123 [guid=adb-2353112e]"), "adb-2353112e")
+  assert.equal(M.pairGuid("Failed: Wrong password or connection was dropped."), "")
+  const svcs = M.parseMdns(`adb-2353112e-LM1n2u\t_adb-tls-connect._tcp\t192.168.1.138:42771
+other-guid-x\t_adb-tls-connect._tcp\t192.168.1.9:9999
+adb-2353112e-LM1n2u\t_adb-tls-pairing._tcp\t192.168.1.138:40795`)
+  // The paired guid wins over a host shared with another phone.
+  assert.equal(M.pickConnectService(svcs, "adb-2353112e", "192.168.1.9"), "192.168.1.138:42771")
+  // No guid in the pair output: fall back to the host of the pair address.
+  assert.equal(M.pickConnectService(svcs, "", "192.168.1.9"), "192.168.1.9:9999")
+  // The phone is not advertising a connect endpoint right now.
+  assert.equal(M.pickConnectService(svcs, "adb-zzz", "10.0.0.1"), "")
+  assert.equal(M.pickConnectService([], "adb-2353112e", "192.168.1.138"), "")
 })
